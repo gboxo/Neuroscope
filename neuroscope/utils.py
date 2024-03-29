@@ -224,17 +224,19 @@ class MaxStore:
             (top_k, length), dtype=torch.float32, device=device
         )
         self.index = -torch.ones((top_k, length), dtype=torch.long, device=device)
+        self.max_pos_index = -torch.ones((top_k, length), dtype=torch.long, device=device)
 
         self.counter = 0
         self.total_updates = 0
         self.batches_seen = 0
 
-    def update(self, new_act, new_index):
+    def update(self, new_act, new_index,new_max_pos_index):
         min_max_act, min_indices = self.max.min(dim=0)
         mask = min_max_act < new_act
         num_updates = mask.sum().item()
         self.max[min_indices[mask], mask] = new_act[mask]
         self.index[min_indices[mask], mask] = new_index[mask]
+        self.max_pos_index[min_indices[mask], mask] = new_max_pos_index[mask]
         self.total_updates += num_updates
         return num_updates
 
@@ -247,6 +249,8 @@ class MaxStore:
 
         Sorts the activations into descending order, then updates with each column until we stop needing to update
         """
+        max_pos_index  = activations[1]
+        activations = activations[0]
         batch_size = activations.size(0)
         new_acts, sorted_indices = activations.sort(0, descending=True)
         if text_indices is None:
@@ -257,8 +261,9 @@ class MaxStore:
                 dtype=torch.int64,
             )
         new_indices = text_indices[sorted_indices]
+        new_max_pos_indices = max_pos_index[sorted_indices]
         for i in range(batch_size):
-            num_updates = self.update(new_acts[i], new_indices[i])
+            num_updates = self.update(new_acts[i], new_indices[i],new_max_pos_indices[i])
             if num_updates == 0:
                 break
         self.counter += batch_size
@@ -272,6 +277,9 @@ class MaxStore:
         path.mkdir(exist_ok=True)
         torch.save(self.max, path / "max.pth")
         torch.save(self.index, path / "index.pth")
+        torch.save(self.max_pos_index, path / "max_pos_index.pth")
+    
+        
         with open(path / "config.json", "w") as f:
             filt_dict = {
                 k: v for k, v in self.__dict__.items() if k not in ["max", "index"]
@@ -283,8 +291,10 @@ class MaxStore:
         """Switch from updating mode to inference - move to the CPU and sort by max act."""
         self.max = self.max.cpu()
         self.index = self.index.cpu()
+        self.max_pos_index = self.max_pos_index.cpu()
         self.max, indices = self.max.sort(dim=0, descending=True)
         self.index = self.index.gather(0, indices)
+        self.max_pos_index = self.max_pos_index.gather(0,indices)
 
     @classmethod
     def load(cls, dir, folder_name=None, continue_updating=False, transpose=False,device = "cpu"):
@@ -296,9 +306,12 @@ class MaxStore:
 
         max = torch.load(path / "max.pth",map_location=device)
         index = torch.load(path / "index.pth",map_location=device)
+        max_pos_index = torch.load(path / "max_pos_index.pth",map_location=device)
+
         if transpose:
             max = max.T
             index = index.T
+            max_pos_index = max_pos_index.T
         with open(path / "config.json", "r") as f:
             config = json.load(f)
         mas = cls(config["top_k"], config["length"])
@@ -306,6 +319,7 @@ class MaxStore:
             mas.__dict__[k] = v
         mas.max = max
         mas.index = index
+        mas.max_pos_index = max_pos_index
         if not continue_updating:
             mas.switch_to_inference()
         return mas

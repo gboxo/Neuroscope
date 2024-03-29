@@ -185,7 +185,7 @@ class NeuronMaxAct(BaseMaxTracker):
 
             def update_max_act_hook(neuron_acts, hook, store):
                 store.batch_update(
-                    einops.reduce(neuron_acts, "batch pos d_mlp -> batch d_mlp", "max")
+                    torch.max(neuron_acts, dim=1, keepdim=False)
                 )
 
             if self.model.cfg.act_fn == "solu_ln":

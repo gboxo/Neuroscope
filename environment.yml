@@ -1,0 +1,50 @@
+name: sparse_coding
+channels:
+  - defaults
+dependencies:
+  - _libgcc_mutex=0.1=main
+  - _openmp_mutex=5.1=1_gnu
+  - bzip2=1.0.8=h7b6447c_0
+  - ca-certificates=2023.12.12=h06a4308_0
+  - ld_impl_linux-64=2.38=h1181459_1
+  - libffi=3.4.4=h6a678d5_0
+  - libgcc-ng=11.2.0=h1234567_1
+  - libgomp=11.2.0=h1234567_1
+  - libstdcxx-ng=11.2.0=h1234567_1
+  - libuuid=1.41.5=h5eee18b_0
+  - ncurses=6.4=h6a678d5_0
+  - openssl=3.0.13=h7f8727e_0
+  - pip=23.3.1=py310h06a4308_0
+  - python=3.10.13=h955ad1f_0
+  - readline=8.2=h5eee18b_0
+  - setuptools=68.2.2=py310h06a4308_0
+  - sqlite=3.41.2=h5eee18b_0
+  - tk=8.6.12=h1ccaba5_0
+  - tzdata=2023d=h04d1e81_0
+  - wheel=0.41.2=py310h06a4308_0
+  - xz=5.4.5=h5eee18b_0
+  - zlib=1.2.13=h5eee18b_0
+  - pip:
+      - babe==0.0.7
+      - config2py==0.1.27
+      - dol==0.2.38
+      - eindex==0.1.0
+      - graze==0.1.14
+      - huggingface-hub==0.21.4
+      - i2==0.1.11
+      - igraph==0.11.4
+      - jax==0.4.25
+      - jaxlib==0.4.25
+      - jaxtyping==0.2.28
+      - pexpect==4.9.0
+      - plotly-express==0.4.1
+      - ptyprocess==0.7.0
+      - py2store==0.1.20
+      - pynacl==1.5.0
+      - safetensors==0.4.2
+      - scikit-learn-extra==0.3.0
+      - six==1.16.0
+      - tokenizers==0.15.2
+      - transformers==4.38.2
+      - typeguard==2.13.3
+prefix: /home/gerard/anaconda3/envs/sparse_coding
