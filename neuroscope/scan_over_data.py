@@ -1,14 +1,14 @@
 # %%
-from neel.imports import *
-import solu.utils as sutils
+
+from utils import *
 
 torch.set_grad_enabled(False)
 
 # Code to automatically update the HookedTransformer code as its edited without restarting the kernel
 @dataclass
 class Config:
-    model_name: str = "solu-1l"
-    data_name: str = "c4"
+    model_name: str = "gpt2-small"
+    data_name: str = "openwebtext"
     max_tokens: int = -1
     debug: bool = False
     batch_size: int = 8
@@ -21,7 +21,7 @@ class Config:
     use_activation_stats: bool = False
     neuron_top_k: int = 20
     head_top_k: int = 200
-
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     def __post_init__(self):
         if "attn-only" in self.model_name:
             self.use_max_neuron_act = False
@@ -46,10 +46,10 @@ class Config:
 
 
 default_cfg = Config()
-
+IN_IPYTHON = True
 if not IN_IPYTHON:
     print("Updating config")
-    cfg = sutils.arg_parse_update_cfg(default_cfg.to_dict())
+    cfg = arg_parse_update_cfg(default_cfg.to_dict())
     cfg = Config.from_dict(cfg)
     print(cfg)
 else:
@@ -77,14 +77,14 @@ print(cfg)
 
 """
 Test:
-tens = torch.load("/workspace/solu_outputs/debug/full_pred_log_probs/code/solu-3l/pred_log_probs.pth")
+tens = torch.load("/workspace/gpt2-small/debug/full_pred_log_probs/code/solu-3l/pred_log_probs.pth")
 
 i = 870
 j = 532
 print(tens[i, j])
 model = HookedTransformer.from_pretrained("solu-3l")
-dataset, tokens_name = sutils.get_dataset("c4")
-tokens = dataset[i:i+1]['tokens'].cuda()
+dataset, tokens_name = get_dataset("c4")
+tokens = dataset[i:i+1]['tokens'].to(cfg.device)
 with torch.autocast("cuda", torch.bfloat16):
     logits = model(tokens)
     plps = model.loss_fn(logits, tokens, per_token=True)
@@ -97,9 +97,9 @@ class PredLogProbs:
         self.cfg = cfg
         self.debug = self.cfg.debug
         if self.debug:
-            self.base_dir = Path("/workspace/solu_outputs/debug/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path("/workspace/gpt2-small/debug/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
         else:
-            self.base_dir = Path("/workspace/solu_outputs/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path("/workspace/gpt2-small/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
         self.base_dir.mkdir(exist_ok=True, parents=True)
 
         if self.debug:
@@ -148,9 +148,9 @@ class BaseMaxTracker:
         self.name = name
 
         if self.debug:
-            self.base_dir = Path(f"/workspace/solu_outputs/debug/{name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/workspace/gpt2-small/debug/{name}") / cfg.data_name / cfg.model_name  # type: ignore
         else:
-            self.base_dir = Path(f"/workspace/solu_outputs/{name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/workspace/gpt2-small/{name}") / cfg.data_name / cfg.model_name  # type: ignore
         self.base_dir.mkdir(exist_ok=True, parents=True)
 
         if self.debug:
@@ -180,7 +180,7 @@ class NeuronMaxAct(BaseMaxTracker):
 
         self.stores = []
         for layer in range(self.model.cfg.n_layers):
-            store = sutils.MaxStore(self.cfg.neuron_top_k, self.model.cfg.d_mlp)
+            store = MaxStore(self.cfg.neuron_top_k, self.model.cfg.d_mlp,device=self.cfg.device)
             self.stores.append(store)
 
             def update_max_act_hook(neuron_acts, hook, store):
@@ -218,10 +218,10 @@ class HeadLogitAttr(BaseMaxTracker):
 
         self.head_zs = [None] * self.model.cfg.n_layers
 
-        self.pos_store = sutils.MaxStore(
+        self.pos_store = MaxStore(
             self.cfg.head_top_k, self.model.cfg.n_heads * self.model.cfg.n_layers
         )
-        self.neg_store = sutils.MaxStore(
+        self.neg_store = MaxStore(
             self.cfg.head_top_k, self.model.cfg.n_heads * self.model.cfg.n_layers
         )
 
@@ -296,7 +296,7 @@ class NeuronLogitAttr(BaseMaxTracker):
         self.stores = []
         for layer in range(self.model.cfg.n_layers):
             self.stores.append(
-                sutils.MaxStore(self.cfg.neuron_top_k, self.model.cfg.d_mlp)
+                MaxStore(self.cfg.neuron_top_k, self.model.cfg.d_mlp)
             )
             # hook_post means the post MLP hook in both gelu & solu
             self.model.blocks[layer].mlp.hook_post.add_hook(
@@ -342,9 +342,9 @@ class ActivationStats:
 
         self.debug = self.cfg.debug
         if self.debug:
-            self.base_dir = Path(f"/workspace/solu_outputs/debug/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/workspace/gpt2-small/debug/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
         else:
-            self.base_dir = Path(f"/workspace/solu_outputs/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/workspace/gpt2-small/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
         self.base_dir.mkdir(exist_ok=True, parents=True)
 
         if self.debug:
@@ -382,7 +382,7 @@ class ActivationStats:
 if not cfg.debug:
     wandb.init(config=cfg.to_dict())
 model = HookedTransformer.from_pretrained(cfg.model_name)  # type: ignore
-dataset = sutils.get_dataset(cfg.data_name)
+dataset = get_dataset(cfg.data_name)
 if len(dataset) * model.cfg.n_ctx < cfg.max_tokens or cfg.max_tokens < 0:
     print("Resetting max tokens:", cfg.max_tokens, "to", len(dataset) * model.cfg.n_ctx)
     cfg.max_tokens = len(dataset) * model.cfg.n_ctx
@@ -405,9 +405,9 @@ if cfg.use_activation_stats:
 
 # %%
 try:
-    with torch.autocast("cuda", torch.bfloat16):
+    with torch.autocast(cfg.device, torch.bfloat16):
         for index in tqdm.tqdm(range(0, cfg.max_tokens // model.cfg.n_ctx, cfg.batch_size)):  # type: ignore
-            tokens = dataset[index : index + cfg.batch_size]["tokens"].cuda()  # type: ignore
+            tokens = dataset[index : index + cfg.batch_size]["tokens"].to(cfg.device)  # type: ignore
             logits = model(tokens).detach()
             for tracker in trackers:
                 tracker.step(logits, tokens)

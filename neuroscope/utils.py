@@ -1,5 +1,6 @@
 # %%
 import einops
+import sys
 import re
 import os
 from pathlib import Path
@@ -12,16 +13,28 @@ import logging
 import shutil
 import argparse
 import datasets
-from typing import Tuple, Union
+from dataclasses import dataclass
+from torch import Tensor
+from jaxtyping import Int, Float
+from typing import List, Optional, Tuple, Dict, Any
 from IPython import get_ipython
 from transformer_lens.utils import get_corner
-from functools import lru_cache
+from functools import lru_cache,partial
 import transformer_lens
+import functools
+from tqdm import tqdm
+import gdown
+from transformer_lens.hook_points import HookPoint
+from transformer_lens import utils, HookedTransformer, HookedTransformerConfig, FactoredMatrix, ActivationCache
+import pprint
+torch.set_grad_enabled(False)
+import IPython
+from datasets import load_dataset,Dataset
 
-CACHE_DIR = Path.home() / ("cache")
-REPO_ROOT = Path.home() / ("hf_repos/")
-OLD_CHECKPOINT_DIR = Path.home() / ("solu_project/solu_checkpoints/")
-CHECKPOINT_DIR = Path.home() / ("solu_project/saved_models/")
+
+
+CACHE_DIR = Path("/mnt/myssd/huggingface_datasets")#Path.home() / ("cache")
+
 
 
 def download_file_from_hf(repo_name, file_name, subfolder=".", cache_dir=CACHE_DIR):
@@ -40,8 +53,6 @@ def download_file_from_hf(repo_name, file_name, subfolder=".", cache_dir=CACHE_D
         print("File type not supported:", file_path.split(".")[-1])
         return file_path
 
-
-# %%
 
 
 
@@ -191,11 +202,11 @@ def get_dataset(dataset_name: str, local=False) -> TokenDatasetWrapper:
             "openwebtext": "NeelNanda/openwebtext-tokenized-9b",
         }
         if dataset_name=="c4-code":
-            c4_data = datasets.load_dataset(remote_dataset_names["c4"], split="train")
-            code_data = datasets.load_dataset(remote_dataset_names["code"], split="train")
+            c4_data = datasets.load_dataset(remote_dataset_names["c4"], split="train",cache_dir=CACHE_DIR)
+            code_data = datasets.load_dataset(remote_dataset_names["code"], split="train",cache_dir=CACHE_DIR)
             tokens = datasets.concatenate_datasets([c4_data, code_data])
         else:
-            tokens = datasets.load_dataset(remote_dataset_names[dataset_name], split="train")
+            tokens = datasets.load_dataset(remote_dataset_names[dataset_name], split="train",cache_dir=CACHE_DIR)
         tokens = tokens.with_format("torch")
         return TokenDatasetWrapper(tokens)
 
@@ -276,15 +287,15 @@ class MaxStore:
         self.index = self.index.gather(0, indices)
 
     @classmethod
-    def load(cls, dir, folder_name=None, continue_updating=False, transpose=False):
+    def load(cls, dir, folder_name=None, continue_updating=False, transpose=False,device = "cpu"):
         dir = Path(dir)
         if folder_name is not None:
             path = dir / folder_name
         else:
             path = dir
 
-        max = torch.load(path / "max.pth")
-        index = torch.load(path / "index.pth")
+        max = torch.load(path / "max.pth",map_location=device)
+        index = torch.load(path / "index.pth",map_location=device)
         if transpose:
             max = max.T
             index = index.T
