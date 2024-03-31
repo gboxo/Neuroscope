@@ -154,7 +154,7 @@ class TokenDatasetWrapper:
         return len(self.dataset)
 
 @lru_cache(maxsize=None)
-def get_dataset(dataset_name: str, local=False) -> TokenDatasetWrapper:
+def get_dataset(dataset_name: str, local=True) -> TokenDatasetWrapper:
     """Loads in one of the model datasets over which we take the max act examples. If local, loads from local folder, otherwise loads from HuggingFace Hub
 
     Args:
@@ -184,11 +184,12 @@ def get_dataset(dataset_name: str, local=False) -> TokenDatasetWrapper:
             "c4": "c4_valid_tokens.hf",
             "code": "code_valid_tokens.hf",
             "pile": "pile_big_int32.hf",
+            "pile-10k": "tokenized_dataset",
             "pile-big": "pile_big_int32.hf",
             "pile-big-uint16": "pile_big_int16.hf",
             "openwebtext": "openwebtext_tokens.hf",
         }
-        tokens = datasets.load_from_disk("/workspace/data/" + local_dataset_names[dataset_name])
+        tokens = datasets.load_from_disk("/mnt/myssd/huggingface_datasets/" + local_dataset_names[dataset_name])
         tokens = tokens.with_format("torch")
         return TokenDatasetWrapper(tokens)
     else:
@@ -240,7 +241,7 @@ class MaxStore:
         self.total_updates += num_updates
         return num_updates
 
-    def batch_update(self, activations, text_indices=None):
+    def batch_update(self, max_act_ind_val, text_indices=None):
         """
         activations: Shape [batch, length]
         text_indices: Shape [batch,]
@@ -249,8 +250,8 @@ class MaxStore:
 
         Sorts the activations into descending order, then updates with each column until we stop needing to update
         """
-        max_pos_index  = activations[1]
-        activations = activations[0]
+        max_pos_index  = max_act_ind_val[1]
+        activations = max_act_ind_val[0]
         batch_size = activations.size(0)
         new_acts, sorted_indices = activations.sort(0, descending=True)
         if text_indices is None:
@@ -259,11 +260,11 @@ class MaxStore:
                 self.counter + batch_size,
                 device=self.device,
                 dtype=torch.int64,
-            )
+            )        
         new_indices = text_indices[sorted_indices]
-        new_max_pos_indices = max_pos_index[sorted_indices]
+        new_max_pos_index = max_pos_index.gather(0, sorted_indices)
         for i in range(batch_size):
-            num_updates = self.update(new_acts[i], new_indices[i],new_max_pos_indices[i])
+            num_updates = self.update(new_acts[i], new_indices[i],new_max_pos_index[i])
             if num_updates == 0:
                 break
         self.counter += batch_size
@@ -282,7 +283,7 @@ class MaxStore:
         
         with open(path / "config.json", "w") as f:
             filt_dict = {
-                k: v for k, v in self.__dict__.items() if k not in ["max", "index"]
+                k: v for k, v in self.__dict__.items() if k not in ["max", "index","max_pos_index"]
             }
             json.dump(filt_dict, f)
         print("Saved Max Store to:", path)

@@ -8,20 +8,21 @@ torch.set_grad_enabled(False)
 @dataclass
 class Config:
     model_name: str = "gpt2-small"
-    data_name: str = "openwebtext"
+    data_name: str = "pile-10k"
     max_tokens: int = -1
-    debug: bool = False
-    batch_size: int = 8
+    debug: bool = True
+    batch_size: int = 100
     version: int = 3
-    overwrite: bool = False
+    n_ctx: int = 32
+    overwrite: bool = True
     use_pred_log_probs: bool = False
-    use_max_neuron_act: bool = False
+    use_max_neuron_act: bool = True
     use_neuron_logit_attr: bool = False
     use_head_logit_attr: bool = False
     use_activation_stats: bool = False
     neuron_top_k: int = 20
     head_top_k: int = 200
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = "cuda" if torch.cuda.is_available() else "cpu"
     def __post_init__(self):
         if "attn-only" in self.model_name:
             self.use_max_neuron_act = False
@@ -58,7 +59,7 @@ else:
         "debug": True,
         "use_activation_stats": True,
         "model_name":"gpt2-small",
-        "data_name":"openwebtext"
+        "data_name":"pile-10k"
     }
     cfg = dict(default_cfg.to_dict())
     cfg.update(new_config)
@@ -66,8 +67,8 @@ else:
     cfg.debug = True
 
 if cfg.debug:
-    cfg.max_tokens = int(1e6)
-    cfg.batch_size = 2
+    cfg.max_tokens = 320000#int(2e6)
+    cfg.batch_size = 1000
 print(cfg)
 # %%
 
@@ -77,7 +78,7 @@ print(cfg)
 
 """
 Test:
-tens = torch.load("/workspace/gpt2-small/debug/full_pred_log_probs/code/solu-3l/pred_log_probs.pth")
+tens = torch.load("/home/gerard/workspace/gpt2-small/debug/full_pred_log_probs/code/solu-3l/pred_log_probs.pth")
 
 i = 870
 j = 532
@@ -97,9 +98,9 @@ class PredLogProbs:
         self.cfg = cfg
         self.debug = self.cfg.debug
         if self.debug:
-            self.base_dir = Path("/workspace/gpt2-small/debug/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path("/home/gerard/workspace/gpt2-small/debug/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
         else:
-            self.base_dir = Path("/workspace/gpt2-small/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path("/home/gerard/workspace/gpt2-small/full_pred_log_probs") / cfg.data_name / cfg.model_name  # type: ignore
         self.base_dir.mkdir(exist_ok=True, parents=True)
 
         if self.debug:
@@ -148,9 +149,9 @@ class BaseMaxTracker:
         self.name = name
 
         if self.debug:
-            self.base_dir = Path(f"/workspace/gpt2-small/debug/{name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/home/gerard/workspace/gpt2-small/debug/{name}") / cfg.data_name / cfg.model_name  # type: ignore
         else:
-            self.base_dir = Path(f"/workspace/gpt2-small/{name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/home/gerard/workspace/gpt2-small/{name}") / cfg.data_name / cfg.model_name  # type: ignore
         self.base_dir.mkdir(exist_ok=True, parents=True)
 
         if self.debug:
@@ -342,9 +343,9 @@ class ActivationStats:
 
         self.debug = self.cfg.debug
         if self.debug:
-            self.base_dir = Path(f"/workspace/gpt2-small/debug/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/home/gerard/workspace/gpt2-small/debug/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
         else:
-            self.base_dir = Path(f"/workspace/gpt2-small/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
+            self.base_dir = Path(f"/home/gerard/workspace/gpt2-small/{self.name}") / cfg.data_name / cfg.model_name  # type: ignore
         self.base_dir.mkdir(exist_ok=True, parents=True)
 
         if self.debug:
@@ -383,9 +384,9 @@ if not cfg.debug:
     wandb.init(config=cfg.to_dict())
 model = HookedTransformer.from_pretrained(cfg.model_name)  # type: ignore
 dataset = get_dataset(cfg.data_name)
-if len(dataset) * model.cfg.n_ctx < cfg.max_tokens or cfg.max_tokens < 0:
-    print("Resetting max tokens:", cfg.max_tokens, "to", len(dataset) * model.cfg.n_ctx)
-    cfg.max_tokens = len(dataset) * model.cfg.n_ctx
+if len(dataset) * cfg.n_ctx < cfg.max_tokens or cfg.max_tokens < 0:
+    print("Resetting max tokens:", cfg.max_tokens, "to", len(dataset) * cfg.n_ctx)
+    cfg.max_tokens = len(dataset) * cfg.n_ctx
 
 trackers = []
 if cfg.use_head_logit_attr:
@@ -405,14 +406,15 @@ if cfg.use_activation_stats:
 
 # %%
 try:
-    with torch.autocast(cfg.device, torch.bfloat16):
-        for index in tqdm.tqdm(range(0, cfg.max_tokens // model.cfg.n_ctx, cfg.batch_size)):  # type: ignore
-            tokens = dataset[index : index + cfg.batch_size]["tokens"].to(cfg.device)  # type: ignore
+    with torch.autocast(str(cfg.device), torch.bfloat16):
+        for index in tqdm(range(0, cfg.max_tokens // cfg.n_ctx, cfg.batch_size)):  # type: ignore
+            tokens = dataset[index : index + cfg.batch_size].to(cfg.device)  # type: ignore
+
             logits = model(tokens).detach()
             for tracker in trackers:
                 tracker.step(logits, tokens)
             if not cfg.debug:
-                wandb.log({"tokens": index * model.cfg.n_ctx}, step=index)
+                wandb.log({"tokens": index * cfg.n_ctx}, step=index)
 finally:
     for tracker in trackers:
         tracker.finish()
