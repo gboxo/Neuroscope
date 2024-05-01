@@ -65,7 +65,6 @@ if not IN_IPYTHON:
     print(cfg)
 else:
     print("In IPython, skipping config")
-    new_config = {
         "debug": True,
         "use_activation_stats": True,
         "use_feature_max_act": True,
@@ -81,7 +80,8 @@ if cfg.debug:
     cfg.max_tokens = 320000#int(2e6)
     cfg.batch_size = 1000
 print(cfg)
-# %%
+
+
 
 
 # %%
@@ -506,3 +506,5 @@ if __name__ == "__main__":
             tracker.finish()
         if not cfg.debug:
             wandb.finish()
+
+
